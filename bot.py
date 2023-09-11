@@ -135,10 +135,20 @@ def append_user_in_channel_db(channelid, channeltitle, userid):
         {'$addToSet':{'channels':channeltitle}},
         return_document=ReturnDocument.AFTER)
     
-    channel_collection.update_one(
-        {"channelid":channelid}, 
-        {'$addToSet':{'users':{'id':userid, 'words':user['keywords']}}, '$set':{"title":channeltitle}},
-        upsert=True)
+    existing_user = channel_collection.find_one({"channelid": channelid, "users.id": userid})
+
+    if existing_user:
+        # 如果user存在，更新tags
+        channel_collection.update_one(
+            {"channelid": channelid, "users.id": userid},
+            {"$addToSet": {"users.$.words": {"$each": user['keywords']}} }
+        )
+    else:
+        # 如果user不存在，添加新的user对象
+        channel_collection.update_one(
+            {"channelid":channelid}, 
+            {'$push':{'users':{'id':userid, 'words':user['keywords']}}, '$set':{"title":channeltitle}},
+            upsert=True)
     return False
 
 @bot_client.on(events.NewMessage(func=lambda e: e.is_reply))
