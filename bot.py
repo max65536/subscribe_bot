@@ -1,7 +1,6 @@
 import logging
 import os
 from telethon import TelegramClient, events, Button
-from telethon.tl.functions.contacts import SearchRequest
 from telethon.tl.functions.channels import JoinChannelRequest
 from telethon.tl.custom import Button as CustomButton
 from telethon.errors import ChannelPrivateError, UsernameNotOccupiedError
@@ -29,105 +28,19 @@ channel_collection = db['channels']
 channels = ["Odaily", "BlockBeats", "Foresight News"]
 keywords = ["ETH", "layer2", "BTC", "分片", "eip"]
 
-@user_client.on(events.NewMessage())
-async def message_handler(event):
-    # logging.info(event.message)
-    sender = await event.get_sender()
-    # logging.info(sender)   
-    channel = channel_collection.find_one({"channelid": sender.id}) 
-    for user in channel['users']:
-        for word in user['words']:
-            if word in event.message.text:
-                await bot_client.send_message(user['id'], "From %s:\n%s"%(sender.title, event.message.text))    
-    
-    # logging.info(str(sender)+":"+event.message.text)
-#    await bot_client.send_message(28664002, event.message.text)
- 
+def init_user_in_db(userid):
+    existing_user = user_collection.find_one({"userid": userid})
+    if existing_user:
+        return
+    user_collection.insert_one({"userid":userid, "channels":[], "keywords":[]})
 
-# 为机器人定义事件处理程序
-@bot_client.on(events.NewMessage(pattern='/start'))
-async def bot_handler(event):
-    sender = await event.get_sender()
-    # await event.reply('Hello from bot!')
-    user = user_collection
-    user_collection.update_one({"userid": sender.id}, 
-                               {'$set':{"channels":[], "keywords":["ETH", "layer2", "BTC", "分片", "eip"]}},
-                               upsert=True)
-    await event.respond(
-        'Welcome!',
-        buttons=[
-            [Button.inline('check channels', b'get_channels')],
-            [Button.inline('check keywords', b'get_keywords')]
-        ]
-    )
+def get_channels(userid):
+    channels = user_collection.find_one({"userid":userid},{"channels":1})
+    return channels['channels']
 
-@bot_client.on(events.NewMessage(pattern='/channels'))
-async def edit_channels(event):
-    sender = await event.get_sender()
-    user = user_collection.find_one({"userid": sender.id})
-    msg = "channels: " + ', '.join(user['channels']) if user is not None else 'no channels set yet'
-    await event.respond(msg, buttons = [[Button.inline('set channels', b'set_channels')]])
-
-@bot_client.on(events.NewMessage(pattern='/keywords'))
-async def edit_keywords(event):
-    sender = await event.get_sender()
-    user = user_collection.find_one({"userid": sender.id})
-    msg = "keywords: " + ', '.join(user['keywords']) if user is not None else 'no keywords set yet'
-    buttons = [[Button.inline("X "+word, b'set_%s' % word)] for word in user['keywords']]
-    buttons.append([Button.inline("+", b'append')])
-    await event.respond(msg, buttons = buttons)
-
-@bot_client.on(events.CallbackQuery(pattern=b'get_channels'))
-async def get_channels(event):
-    sender = await event.get_sender()
-    user = user_collection.find_one({"userid": sender.id})
-    msg = "channels: " + ', '.join(user['channels']) if user is not None else 'no channels set yet'
-    await event.respond(msg, buttons = [[Button.inline('set channel', b'set_channel')]])
-
-@bot_client.on(events.CallbackQuery(pattern=b'get_keywords'))
-async def get_keywords(event):
-    sender = await event.get_sender()
-    user = user_collection.find_one({"userid": sender.id})
-    msg = "keywords: " + ', '.join(user['keywords']) if user is not None else 'no keywords set yet'
-    await event.respond(msg, buttons = [[Button.inline('set keywords', b'set_keywords')]])
-    
-@bot_client.on(events.NewMessage(pattern='/set_channel'))
-async def set_channel(event):
-    # sender = await event.get_sender()
-    # user = user_collection.find_one({"userid": sender.id})
-    # if user is None:
-    #     post = {"userid": sender.id, "channels":["Odaily", "BlockBeats", "Foresight News", "messageloader"], "keywords":["ETH", "BTC"]}
-    #     # "channelid":1919143832, "title":"messageloader"
-    #     post_id = user_collection.insert_one(post).inserted_id    
-    await event.respond('input a channel name or link:', reply_to=event.id, buttons=CustomButton.force_reply(selective=True, placeholder=r'"xxx" or "https://t.me/xxx"'))    
-    # await event.respond('input a channel name or link:', reply_to=event.id, buttons=CustomButton.force_reply(selective=True, placeholder='test placeholder'))
-
-
-
-@bot_client.on(events.CallbackQuery(pattern=b'set_keywords'))
-async def set_keywords(event):
-    sender = await event.get_sender()
-    user = user_collection.find_one({"userid": sender.id})
-    if user is None:
-        post = {"userid": sender.id, "channels":["Odaily", "BlockBeats", "Foresight News"], "keywords":["ETH", "BTC"]}
-        post_id = user_collection.insert_one(post).inserted_id
-    else:
-        words = event.message.text.split(',')
-        words = [w.strip() for w in words]
-        updates = {"keywords": words}
-        user_collection.update_one({"userid":sender.id},{"keywords": keywords})
-    await bot_client.send_message(6653848637, ','.join(keywords))
-
-# @bot_client.on(events.CallbackQuery())
-# async def callback_handler(event):
-#     if event.data == b'data_option1':
-#         await event.edit('You selected Option 1!')ReturnDocument
-#     elif event.data == b'data_option2':
-#         await event.edit('You selected Option 2!')
-
-@bot_client.on(events.NewMessage(pattern='/test'))
-async def start_handler(event):
-    await event.respond('请回复这条消息：', reply_to=event.id, buttons=CustomButton.force_reply(selective=True, placeholder='test placeholder'))
+def get_keywords(userid):
+    words = user_collection.find_one({"userid":userid},{"keywords":1})
+    return words['keywords']
 
 def append_user_in_channel_db(channelid, channeltitle, userid):
     user = user_collection.find_one_and_update(
@@ -149,7 +62,74 @@ def append_user_in_channel_db(channelid, channeltitle, userid):
             {"channelid":channelid}, 
             {'$push':{'users':{'id':userid, 'words':user['keywords']}}, '$set':{"title":channeltitle}},
             upsert=True)
-    return False
+    return True
+
+def append_keywords_in_db(words, userid):
+    user = user_collection.find_one_and_update(
+        {"userid":userid},
+        {'$addToSet':{'keywords':{'$each':words}}},
+        return_document=ReturnDocument.AFTER
+    )
+
+    channel_collection.update_many(
+        {"users.id":userid},
+        {'$addToSet':{"users.$.words": {"$each": words}}}
+    )
+
+    return user['keywords']
+
+@user_client.on(events.NewMessage())
+async def message_handler(event):
+    # logging.info(event.message)
+    sender = await event.get_sender()
+    # logging.info(sender)   
+    channel = channel_collection.find_one({"channelid": sender.id}) 
+    for user in channel['users']:
+        for word in user['words']:
+            if word in event.message.text:
+                await bot_client.send_message(user['id'], "From %s:\n%s"%(sender.title, event.message.text))    
+    
+# logging.info(str(sender)+":"+event.message.text)
+#    await bot_client.send_message(28664002, event.message.text)
+ 
+
+# 为机器人定义事件处理程序
+@bot_client.on(events.NewMessage(pattern='/start'))
+async def bot_handler(event):
+    sender = await event.get_sender()
+    init_user_in_db(sender.id)
+    await event.respond(
+        'Welcome!'#,
+        # buttons=[
+        #     [Button.inline('check channels', b'get_channels')],
+        #     [Button.inline('check keywords', b'get_keywords')]
+        # ]
+    )
+
+@bot_client.on(events.NewMessage(pattern='/show_channels'))
+async def show_channels(event):
+    sender = await event.get_sender()
+    channels = get_channels(sender.id)
+    await event.respond("channels:"+','.join(channels))
+
+@bot_client.on(events.NewMessage(pattern='/show_keywords'))
+async def show_keywords(event):
+    sender = await event.get_sender()
+    keywords = get_keywords(sender.id)
+    await event.respond("keywords:"+','.join(keywords))
+
+@bot_client.on(events.NewMessage(pattern='/set_channel'))
+async def set_channel(event):
+    await event.respond('input a channel name or link:', reply_to=event.id, buttons=CustomButton.force_reply(selective=True, placeholder=r'"xxx" or "https://t.me/xxx"'))    
+    
+@bot_client.on(events.NewMessage(pattern='/set_keyword'))
+async def set_channel(event):
+    await event.respond('input keywords:', reply_to=event.id, buttons=CustomButton.force_reply(selective=True, placeholder=r'BTC, ETH, layer2'))
+
+@bot_client.on(events.NewMessage(pattern='/test'))
+async def start_handler(event):
+    await event.respond('请回复这条消息：', reply_to=event.id, buttons=CustomButton.force_reply(selective=True, placeholder='test placeholder'))
+
 
 @bot_client.on(events.NewMessage(func=lambda e: e.is_reply))
 async def reply_handler(event):
@@ -157,7 +137,7 @@ async def reply_handler(event):
     sender = await event.get_sender()
     if replied_message.text == '请回复这条消息：':
         await event.respond(f'你说: {event.text}')
-    elif replied_message.text == 'input a channel name or link:':        
+    elif replied_message.text == 'input a channel name or link:':
         channel_link = f"https://t.me/{event.text}" if '/' not in event.text else event.text
         try:
             newchannel = await user_client.get_entity(channel_link)
@@ -180,6 +160,25 @@ async def reply_handler(event):
         except Exception as e:
             logging.info(f"发生了错误：{str(e)}")                
             await event.respond(f"发生了错误：{str(e)}")
+    elif replied_message.text == 'input keywords:':
+        replywords = event.text.replace('，',',').split(',')
+        keywords = [word.strip() for word in replywords]
+        try:
+            current_keywords = append_keywords_in_db(words=keywords, userid=sender.id)
+            await event.respond(f"current keywords:{current_keywords}")
+        except Exception as e:
+            logging.info(f"发生了错误：{str(e)}")                
+            await event.respond(f"发生了错误：{str(e)}")            
+
+@bot_client.on(events.NewMessage(pattern='/test2'))
+async def test2(event):
+    await event.respond(
+        'Choose an option:',
+        buttons=[
+            [Button.text('Option 1'), Button.text('Option 2')],
+            [Button.text('Option 3')]
+        ]
+    )
 
 
 
