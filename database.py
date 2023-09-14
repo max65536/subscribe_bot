@@ -11,11 +11,14 @@ db = client['tgbot']
 
 # 选择或创建一个集合
 collection = db['users']
+collection2 = db['channels']
 
 # 插入单个文档
 post = {"userid": 6653848637, "channels":["Odaily", "BlockBeats", "Foresight News"], "keywords":["ETH", "layer2", "BTC", "分片", "eip"]}
 post_id = collection.insert_one(post).inserted_id
 
+post = {"channelid":1919143832, "title":"messageloader", "users":[6653848637,]}
+post_id = collection2.insert_one(post).inserted_id
 # 插入多个文档
 # posts = [
 #     {"name": "Alice", "age": 25},
